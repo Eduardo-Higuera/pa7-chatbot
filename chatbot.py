@@ -6,6 +6,9 @@
 import util
 
 import numpy as np
+import re
+import porter_stemmer
+stemmer = porter_stemmer.PorterStemmer()
 
 
 # noinspection PyMethodMayBeStatic
@@ -23,7 +26,16 @@ class Chatbot:
         # The values stored in each row i and column j is the rating for
         # movie i by user j
         self.titles, ratings = util.load_ratings('data/ratings.txt')
-        self.sentiment = util.load_sentiment_dictionary('data/sentiment.txt')
+        sentiment = util.load_sentiment_dictionary('data/sentiment.txt')
+
+        stemmed_sentiment = {}
+        for key in sentiment:
+            stemmed_key = stemmer.stem(key)
+            stemmed_sentiment[stemmed_key] = sentiment[key]
+        self.sentiment = stemmed_sentiment
+
+        self.negations = ['not', 'never', 'no', 'none', 'neither', 'nor', 'hardly', 'scarcely', 'barely', 'doesn\'t', 'isn\'t', 'wasn\'t', 'weren\'t', 'haven\'t', 'hasn\'t', 'hadn\'t', 'cannot', 'can\'t', 'won\'t', 'wouldn\'t', 'shouldn\'t', 'mustn\'t', 'don\'t', 'doesn\'t', 'didn\'t']
+
 
         ########################################################################
         # TODO: Binarize the movie ratings matrix.                             #
@@ -130,14 +142,30 @@ class Chatbot:
         # your implementation to do any generic preprocessing, feel free to    #
         # leave this method unmodified.                                        #
         ########################################################################
+        TITLE = "<title>"
 
+        text_no_title = text
+        titles = Chatbot.extract_titles(text)
+        for title in titles:
+            text_no_title = text_no_title.replace(title, TITLE)
+
+        new_text = ""
+        for word in text_no_title.split(" "):
+            new_word = stemmer.stem(word) if word != TITLE else TITLE
+            new_text = f"{new_text} {new_word}"
+        new_text = new_text.lower()
+
+        for title in titles:
+            new_text = new_text.replace(TITLE, title, 1)
+        text = new_text
         ########################################################################
         #                             END OF YOUR CODE                         #
         ########################################################################
 
         return text
 
-    def extract_titles(self, preprocessed_input):
+    @staticmethod
+    def extract_titles(preprocessed_input):
         """Extract potential movie titles from a line of pre-processed text.
 
         Given an input text which has been pre-processed with preprocess(),
@@ -159,7 +187,9 @@ class Chatbot:
         pre-processed with preprocess()
         :returns: list of movie titles that are potentially in the text
         """
-        return []
+        titles = re.findall(r'"(.+?)"', preprocessed_input)
+
+        return titles
 
     def find_movies_by_title(self, title):
         """ Given a movie title, return a list of indices of matching movies.
@@ -179,7 +209,32 @@ class Chatbot:
         :param title: a string containing a movie title
         :returns: a list of indices of matching movies
         """
-        return []
+        title = title.lower()
+        years = re.findall(r'\([0-9]{4}\)', title)
+        year_braced = None if len(years) == 0 else years[-1]
+        year = year_braced.replace("(", "").replace(")", "") if year_braced else None
+
+        title_to_find = title
+        if year_braced:
+            title_to_find = title.replace(year_braced, "").strip()
+        
+        indexes = []
+        def get_indexes(): 
+            for i, movie in enumerate(self.titles):
+                curr_movie = movie[0].lower()
+                if curr_movie.startswith(f"{title_to_find} (") or curr_movie == title_to_find:
+                    if year and year in movie[0] or not year:
+                        indexes.append(i)
+        get_indexes()
+
+        if len(indexes) == 0: 
+            start = re.findall(r'^(the |an |a )', title)
+            if len(start):
+                title_to_find = f"{title_to_find.replace(start[0], '', 1)}, {start[0].strip()}"
+                get_indexes()
+
+
+        return indexes
 
     def extract_sentiment(self, preprocessed_input):
         """Extract a sentiment rating from a line of pre-processed text.
@@ -201,7 +256,27 @@ class Chatbot:
         pre-processed with preprocess()
         :returns: a numerical value for the sentiment of the text
         """
-        return 0
+        input_no_title = preprocessed_input
+        for title in Chatbot.extract_titles(preprocessed_input):
+            input_no_title = input_no_title.replace(title, "")
+
+        sentiment = 0
+        negate = False
+        for word in input_no_title.split(" "):
+            if word in self.negations:
+                negate = True
+                continue
+            if word not in self.sentiment:
+                continue
+
+            curr_sentiment = 1 if self.sentiment[word] == "pos" else -1
+            if negate:
+                curr_sentiment *= -1
+                negate = False
+
+            sentiment += curr_sentiment
+
+        return sentiment
 
     def extract_sentiment_for_movies(self, preprocessed_input):
         """Creative Feature: Extracts the sentiments from a line of
@@ -308,7 +383,12 @@ class Chatbot:
 
         # The starter code returns a new matrix shaped like ratings but full of
         # zeros.
-        binarized_ratings = np.zeros_like(ratings)
+        binarized_ratings = ratings.copy()
+        binarized_ratings [ratings > threshold] = 1
+        binarized_ratings [ratings <= threshold] = -1
+        binarized_ratings [ratings == 0] = 0
+
+        
 
         ########################################################################
         #                        END OF YOUR CODE                              #
@@ -328,7 +408,10 @@ class Chatbot:
         ########################################################################
         # TODO: Compute cosine similarity between the two vectors.             #
         ########################################################################
-        similarity = 0
+        u = np.array(u)
+        v = np.array(v)
+        similarity = (u.dot(v)) / (np.linalg.norm(u) * np.linalg.norm(v)) 
+
         ########################################################################
         #                          END OF YOUR CODE                            #
         ########################################################################
@@ -411,6 +494,9 @@ class Chatbot:
 
 
 if __name__ == '__main__':
-    print('To run your chatbot in an interactive loop from the command line, '
-          'run:')
-    print('    python3 repl.py')
+    # movie = 'An American in Paris (1951)'
+    sentence = 'I didn\'t really like "Titanic (1997)".'
+    chatty = Chatbot()
+    print(chatty.preprocess(sentence))
+    # print(chatty.find_movies_by_title(movie))
+    # print(chatty.titles)
