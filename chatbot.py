@@ -8,7 +8,13 @@ import util
 import numpy as np
 import re
 import porter_stemmer
+from collections import defaultdict
 stemmer = porter_stemmer.PorterStemmer()
+
+YES_INPUTS = {'yes', 'sure', 'absolutely', 'of course', 'certainly', 'definitely', 'yeah', 'y', 'ya', 'ye'}
+NO_INPUTS = {'no', 'not at all', 'absolutely not', 'never', 'no way', 'n', 'nah'}
+
+
 
 
 # noinspection PyMethodMayBeStatic
@@ -36,11 +42,16 @@ class Chatbot:
 
         self.negations = ['not', 'never', 'no', 'none', 'neither', 'nor', 'hardly', 'scarcely', 'barely', 'doesn\'t', 'isn\'t', 'wasn\'t', 'weren\'t', 'haven\'t', 'hasn\'t', 'hadn\'t', 'cannot', 'can\'t', 'won\'t', 'wouldn\'t', 'shouldn\'t', 'mustn\'t', 'don\'t', 'doesn\'t', 'didn\'t']
 
+        self.user_ratings = np.zeros((ratings.shape[0]))
+        self.input_count = 0
+        self.recommendations = None
+        self.current_recommendation = 0
+        self.waiting_on_response = False
 
         ########################################################################
         # TODO: Binarize the movie ratings matrix.                             #
         ########################################################################
-
+        ratings = Chatbot.binarize(ratings)
         # Binarize the movie ratings before storing the binarized matrix.
         self.ratings = ratings
         ########################################################################
@@ -57,7 +68,7 @@ class Chatbot:
         # TODO: Write a short greeting message                                 #
         ########################################################################
 
-        greeting_message = "How can I help you?"
+        greeting_message = "Hi! I'm MovieBot! I'm going to recommend a movie to you. First I will ask you about your taste in movies. Tell me about a movie that you have seen."
 
         ########################################################################
         #                             END OF YOUR CODE                         #
@@ -109,10 +120,74 @@ class Chatbot:
         # directly based on how modular it is, we highly recommended writing   #
         # code in a modular fashion to make it easier to improve and debug.    #
         ########################################################################
+        preprocessed_line = self.preprocess(line)
         if self.creative:
             response = "I processed {} in creative mode!!".format(line)
         else:
-            response = "I processed {} in starter mode!!".format(line)
+            def recommend_movie():
+                recommendation = f'"{self.titles[self.recommendations[self.current_recommendation]][0]}"'
+
+                RECOMMENDATIONS = [
+    f"Thats enough for me to make a recommendation. Based on your interests, I believe you will enjoy {recommendation}. Do you want to hear additional suggestions?",
+    f"I have a feeling that {recommendation} will pique your interest. Shall I offer you some more recommendations?",
+    f"I am confident that you will find {recommendation} appealing. Would you like me to provide you with more options?",
+    f"My intuition tells me that {recommendation} will catch your attention. Do you want me to give you further recommendations?",
+    f"Judging from your preferences, I think {recommendation} would suit your taste. Can I suggest more options for you?",
+    f"I think {recommendation} would be right up your alley. If you're interested, I can suggest some similar options as well.",
+    f"Based on what I know about your tastes, I'm pretty sure you'll love {recommendation}. Want me to offer some additional suggestions?",
+    f"If you're looking for something new and exciting, I highly recommend {recommendation}. And if you're open to it, I can suggest some related ideas too.",
+    f"In my opinion, {recommendation} is a standout choice. But if you'd like to explore some other options, just let me know.",
+    f"From my analysis of your interests, I believe {recommendation} would be an excellent choice. But if you'd like some more ideas, I'd be happy to provide them."
+]
+                self.waiting_on_response = True
+                response = RECOMMENDATIONS[self.current_recommendation % len(RECOMMENDATIONS)]
+                self.current_recommendation += 1 # TODO: get more recommendations if needed
+                return response
+
+
+            if not self.waiting_on_response:
+                # Get movie titles from input
+                titles = self.extract_titles(preprocessed_line)
+                if len(titles) == 0: 
+                    return "Sorry, I couldn't identify a movie in your response. Make sure the movie title is surrounded by quotation marks."
+                elif len(titles) > 1:
+                    return  "Sorry, please tell me about one movie at a time."
+
+                title = f'"{titles[0]}"'
+                # Find movies by the title
+                movie_indexes = self.find_movies_by_title(title.replace('"', ''))
+                if len(movie_indexes) == 0:
+                    return f"Sorry, I coudn't find the movie {title}, please tell me about another movie that you've watched."
+                elif len(movie_indexes) > 1:
+                    return f"Sorry, I found more than one movie called {title}. Can you clarify?"
+                
+                # Get sentiment
+                sentiment = self.extract_sentiment(preprocessed_line)
+                response = ""
+                if sentiment == 0:
+                    return f"I'm not sure if you liked {title}, can you tell me more about it?"
+                elif sentiment == -1:
+                    response = f"I'm sorry to hear you didn't like {title}."
+                elif sentiment == 1:
+                    response = f"Great, you liked {title}."
+                
+                self.user_ratings[movie_indexes[0]] = sentiment
+                self.input_count += 1
+
+                if self.input_count < 5:
+                    return f"{response} Tell me about other movies that you've seen."
+                
+                self.recommendations = self.recommend(self.user_ratings, self.ratings)
+                return f"{response} \n {recommend_movie()}"
+            else:
+                print(f"pre_process: {preprocessed_line}")
+                if preprocessed_line in NO_INPUTS:
+                    self.waiting_on_response = False                    
+                    return "Ok, enter :quit to quit or tell me about another movie that you've seen."
+                elif preprocessed_line in YES_INPUTS:
+                    return recommend_movie()
+                else:
+                    return "Sorry, I didn't understand that. Would you like more recommendations? [yes/no]"
 
         ########################################################################
         #                          END OF YOUR CODE                            #
@@ -157,6 +232,8 @@ class Chatbot:
 
         for title in titles:
             new_text = new_text.replace(TITLE, title, 1)
+
+        new_text = new_text.translate(str.maketrans("", "", ",.!?")).strip()
         text = new_text
         ########################################################################
         #                             END OF YOUR CODE                         #
@@ -384,9 +461,9 @@ class Chatbot:
         # The starter code returns a new matrix shaped like ratings but full of
         # zeros.
         binarized_ratings = ratings.copy()
-        binarized_ratings [ratings > threshold] = 1
-        binarized_ratings [ratings <= threshold] = -1
-        binarized_ratings [ratings == 0] = 0
+        binarized_ratings[ratings > threshold] = 1
+        binarized_ratings[ratings <= threshold] = -1
+        binarized_ratings[ratings == 0] = 0
 
         
 
@@ -439,7 +516,7 @@ class Chatbot:
         :returns: a list of k movie indices corresponding to movies in
         ratings_matrix, in descending order of recommendation.
         """
-
+ 
         ########################################################################
         # TODO: Implement a recommendation function that takes a vector        #
         # user_ratings and matrix ratings_matrix and outputs a list of movies  #
@@ -454,7 +531,28 @@ class Chatbot:
         ########################################################################
 
         # Populate this list with k movie indices to recommend to the user.
-        recommendations = []
+        # print(ratings_matrix)
+        ratings = np.zeros(user_ratings.shape)
+        # print(f"user ratings: {user_ratings}, shape: {ratings.shape}")
+        for i in range(len(user_ratings)):
+            if user_ratings[i] != 0: 
+                continue
+            cosines = np.zeros(user_ratings.shape)
+            for j in range(len(user_ratings)):
+                if user_ratings[j] == 0:
+                    continue
+                # print(f"A: {ratings_matrix[i]}")
+                # print(f"B: {ratings_matrix[j]}")
+
+                cosines[j] = self.similarity(ratings_matrix[i], ratings_matrix[j])
+            # print(f"{i}: {cosines}")
+            # print(f"ratings[{i}]: {user_ratings.dot(cosines)}")
+            ratings[i] = user_ratings.dot(cosines)
+
+        ratings[ratings == 0] = np.NINF
+        sorted_ratings = np.argsort(-ratings)
+        # print(sorted_ratings)
+        recommendations = list(sorted_ratings[0:k])
 
         ########################################################################
         #                        END OF YOUR CODE                              #
@@ -495,7 +593,8 @@ class Chatbot:
 
 if __name__ == '__main__':
     # movie = 'An American in Paris (1951)'
-    sentence = 'I didn\'t really like "Titanic (1997)".'
+    # sentence = 'I didn\'t really like "Titanic (1997)".'
+    sentence = "of course!"
     chatty = Chatbot()
     print(chatty.preprocess(sentence))
     # print(chatty.find_movies_by_title(movie))
