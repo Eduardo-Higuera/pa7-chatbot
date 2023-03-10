@@ -10,6 +10,9 @@ import re
 import porter_stemmer
 from collections import defaultdict
 stemmer = porter_stemmer.PorterStemmer()
+# from editdistance import eval as calculate_edit_distance
+from nltk.metrics.distance import edit_distance as calculate_edit_distance
+
 
 YES_INPUTS = {'yes', 'sure', 'absolutely', 'of course', 'certainly', 'definitely', 'yeah', 'y', 'ya', 'ye', 'yep', 'yup'}
 NO_INPUTS = {'no', 'not at all', 'absolutely not', 'never', 'no way', 'n', 'nah'}
@@ -41,6 +44,10 @@ class Chatbot:
         self.sentiment = stemmed_sentiment
 
         self.negations = ['not', 'never', 'no', 'none', 'neither', 'nor', 'hardly', 'scarcely', 'barely', 'doesn\'t', 'isn\'t', 'wasn\'t', 'weren\'t', 'haven\'t', 'hasn\'t', 'hadn\'t', 'cannot', 'can\'t', 'won\'t', 'wouldn\'t', 'shouldn\'t', 'mustn\'t', 'don\'t', 'doesn\'t', 'didn\'t']
+        self.enhancers = ['really', 'reeally', 'realli', 'realli']
+        self.strong_like = ['love']
+        self.strong_dislike = ['hate', 'terrible']
+
 
         self.user_ratings = np.zeros((ratings.shape[0]))
         self.input_count = 0
@@ -337,27 +344,64 @@ class Chatbot:
         pre-processed with preprocess()
         :returns: a numerical value for the sentiment of the text
         """
-        input_no_title = preprocessed_input
-        for title in Chatbot.extract_titles(preprocessed_input):
-            input_no_title = input_no_title.replace(title, "")
+        if self.creative:
+            input_no_title = preprocessed_input
+            for title in Chatbot.extract_titles(preprocessed_input):
+                input_no_title = input_no_title.replace(title, "")
 
-        sentiment = 0
-        negate = False
-        for word in input_no_title.split(" "):
-            if word in self.negations:
-                negate = True
-                continue
-            if word not in self.sentiment:
-                continue
+            sentiment = 0
+            negate = False
+            enhance = False
+            strong_like = False
+            strong_dislike = False
+            for word in input_no_title.split(" "):
+                if word in self.negations:
+                    negate = True
+                    continue
+                if word in self.enhancers:
+                    enhance = True
+                    continue
+                if word in self.strong_like:
+                    strong_like = True
+                if word in self.strong_dislike:
+                    strong_dislike = True
+                if word not in self.sentiment:
+                    continue
+                curr_sentiment = 1 if self.sentiment[word] == "pos" else -1
+                if negate:
+                    curr_sentiment *= -1
+                    negate = False
+                sentiment += curr_sentiment
 
-            curr_sentiment = 1 if self.sentiment[word] == "pos" else -1
-            if negate:
-                curr_sentiment *= -1
-                negate = False
+            if strong_like:
+                sentiment = 2
+            elif strong_dislike:
+                sentiment = -2
+            elif enhance:
+                sentiment *= 2
+            return sentiment
+        else:
+            input_no_title = preprocessed_input
+            for title in Chatbot.extract_titles(preprocessed_input):
+                input_no_title = input_no_title.replace(title, "")
 
-            sentiment += curr_sentiment
+            sentiment = 0
+            negate = False
+            for word in input_no_title.split(" "):
+                if word in self.negations:
+                    negate = True
+                    continue
+                if word not in self.sentiment:
+                    continue
 
-        return sentiment
+                curr_sentiment = 1 if self.sentiment[word] == "pos" else -1
+                if negate:
+                    curr_sentiment *= -1
+                    negate = False
+
+                sentiment += curr_sentiment
+
+            return sentiment
 
     def extract_sentiment_for_movies(self, preprocessed_input):
         """Creative Feature: Extracts the sentiments from a line of
@@ -382,6 +426,7 @@ class Chatbot:
         """
         pass
 
+    
     def find_movies_closest_to_title(self, title, max_distance=3):
         """Creative Feature: Given a potentially misspelled movie title,
         return a list of the movies in the dataset whose titles have the least
@@ -405,8 +450,41 @@ class Chatbot:
         :returns: a list of movie indices with titles closest to the given title
         and within edit distance max_distance
         """
+        
 
-        pass
+        def prep_title(to_prep):
+            open_parentheses = to_prep.find('(')
+            close_parentheses = to_prep.find(')')
+            if open_parentheses != -1 and close_parentheses != -1:
+                to_prep = to_prep[:open_parentheses]
+        
+            to_prep = to_prep.strip()
+            to_prep = to_prep.lower()
+            return to_prep
+
+        title = prep_title(title)
+        indexes = []
+        def get_indexes(): 
+            best_distance = max_distance
+            for i, movie in enumerate(self.titles):
+                curr_movie = prep_title(movie[0])
+                distance = calculate_edit_distance(curr_movie, title_to_find)
+                # if i == 524 or i == 5743:
+                #     print(f"title: {title_to_find} curr_movie: {curr_movie}, distance: {distance}")
+                # return
+                if distance <= max_distance and distance <= best_distance: 
+                    if distance < best_distance:
+                        best_distance = distance
+                        indexes.clear()
+                        indexes.append(i)
+                    else:
+                        indexes.append(i)
+
+
+        title_to_find = title
+        get_indexes()
+
+        return indexes
 
     def disambiguate(self, clarification, candidates):
         """Creative Feature: Given a list of movies that the user could be
@@ -622,13 +700,22 @@ disambiguate_test_cases = [(("2", [1142, 1357, 2629, 546]), [1357]),
 by_title_test_cases = [("Scream", [1142, 1357, 2629, 546]),
                        ("Percy Jackson", [7463, 8377])]
 
+fine_sentiment = [('I loved "Zootopia"', 2), 
+                  ('"Zootopia" was terrible.', -2), 
+                  ('I really reeally liked "Zootopia"!!!', 2)]
+
+edit_distance_test = [(("Sleeping Beaty", 3), [1656]), 
+                      (("Te", 3), [8082, 4511, 1664]),
+                      (("BAT-MAAAN", 3), [524, 5743]), 
+                      (("Blargdeblargh", 4), [])]
+
 if __name__ == '__main__':
     chatty = Chatbot()
-    tests = by_title_test_cases
-    func = chatty.find_movies_by_title
+    tests = edit_distance_test
+    func = chatty.find_movies_closest_to_title
+    chatty.creative = True
 
     for test_case in tests:
         (input, expected) = test_case
-        result = func(input)
+        result = func(input[0], max_distance=input[1])
         print(f"{'PASS' if result == expected else 'FAIL'}: Input: {input} Output: {result} Expected: {expected}")
-        print(f"Names: {chatty.get_names_from_index(result)}")
