@@ -11,7 +11,7 @@ import porter_stemmer
 from collections import defaultdict
 stemmer = porter_stemmer.PorterStemmer()
 
-YES_INPUTS = {'yes', 'sure', 'absolutely', 'of course', 'certainly', 'definitely', 'yeah', 'y', 'ya', 'ye'}
+YES_INPUTS = {'yes', 'sure', 'absolutely', 'of course', 'certainly', 'definitely', 'yeah', 'y', 'ya', 'ye', 'yep', 'yup'}
 NO_INPUTS = {'no', 'not at all', 'absolutely not', 'never', 'no way', 'n', 'nah'}
 
 
@@ -230,10 +230,11 @@ class Chatbot:
             new_text = f"{new_text} {new_word}"
         new_text = new_text.lower()
 
+        new_text = new_text.translate(str.maketrans("", "", ",.!?")).strip()
+
         for title in titles:
             new_text = new_text.replace(TITLE, title, 1)
 
-        new_text = new_text.translate(str.maketrans("", "", ",.!?")).strip()
         text = new_text
         ########################################################################
         #                             END OF YOUR CODE                         #
@@ -264,9 +265,12 @@ class Chatbot:
         pre-processed with preprocess()
         :returns: list of movie titles that are potentially in the text
         """
+        # print(preprocessed_input)
         titles = re.findall(r'"(.+?)"', preprocessed_input)
+        # print(titles)
 
         return titles
+
 
     def find_movies_by_title(self, title):
         """ Given a movie title, return a list of indices of matching movies.
@@ -427,7 +431,18 @@ class Chatbot:
         :returns: a list of indices corresponding to the movies identified by
         the clarification
         """
-        pass
+
+
+
+        titles = [(self.titles[candidate][0], candidate) for candidate in candidates]
+        potential_movies = []
+        for (title, index) in titles:
+            year = re.findall(r'\([0-9]{4}\)', title)[0].replace("(", "").replace(")", "")
+            title = title.replace(year, "")
+            if clarification == year or clarification in title:
+                potential_movies.append(index)
+
+        return potential_movies
 
     ############################################################################
     # 3. Movie Recommendation helper functions                                 #
@@ -487,7 +502,10 @@ class Chatbot:
         ########################################################################
         u = np.array(u)
         v = np.array(v)
-        similarity = (u.dot(v)) / (np.linalg.norm(u) * np.linalg.norm(v)) 
+        if np.all(u == 0) or np.all(v == 0) or np.isnan(u).any() or np.isnan(v).any() or np.isinf(u).any() or np.isinf(v).any():
+            similarity = np.nan
+        else:
+            similarity = (u.dot(v)) / (np.linalg.norm(u) * np.linalg.norm(v)) 
 
         ########################################################################
         #                          END OF YOUR CODE                            #
@@ -589,13 +607,28 @@ class Chatbot:
         and expressions of sentiment will be simple!
         TODO: Write here the description for your own chatbot!
         """
+    
+    def get_names_from_index(self, index):
+        names = []
+        for i in index:
+            names.append(self.titles[i][0])
+        return names
 
+
+disambiguate_test_cases = [(("2", [1142, 1357, 2629, 546]), [1357]), 
+                           (("1997", [1359, 2716]), [1359]),
+                           (("Sorcerer's Stone", [3812, 4325, 5399, 6294, 6735, 7274, 7670, 7842]), [3812])]
+
+by_title_test_cases = [("Scream", [1142, 1357, 2629, 546]),
+                       ("Percy Jackson", [7463, 8377])]
 
 if __name__ == '__main__':
-    # movie = 'An American in Paris (1951)'
-    # sentence = 'I didn\'t really like "Titanic (1997)".'
-    sentence = "of course!"
     chatty = Chatbot()
-    print(chatty.preprocess(sentence))
-    # print(chatty.find_movies_by_title(movie))
-    # print(chatty.titles)
+    tests = by_title_test_cases
+    func = chatty.find_movies_by_title
+
+    for test_case in tests:
+        (input, expected) = test_case
+        result = func(input)
+        print(f"{'PASS' if result == expected else 'FAIL'}: Input: {input} Output: {result} Expected: {expected}")
+        print(f"Names: {chatty.get_names_from_index(result)}")
