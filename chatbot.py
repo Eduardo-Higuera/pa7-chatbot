@@ -54,6 +54,9 @@ class Chatbot:
         self.recommendations = None
         self.current_recommendation = 0
         self.waiting_on_response = False
+        self.waiting_on_typo = False
+        self.waiting_on_disambiguate = False
+        self.last_preprocessed_line = None
 
         ########################################################################
         # TODO: Binarize the movie ratings matrix.                             #
@@ -97,6 +100,24 @@ class Chatbot:
         ########################################################################
         return goodbye_message
 
+    def process_sentiment(self, line, movie_index):
+        '''
+        line: preprocess line with correct tile
+        return: (0 if unsuccesful 1 if successful, response)
+        '''
+        sentiment = self.extract_sentiment(line)
+        response = ""
+        if sentiment == 0:
+            return (0, f"I'm not sure if you liked {self.current_title}, can you tell me more about it?")
+        elif sentiment == -1:
+            response = f"I'm sorry to hear you didn't like {self.current_title}."
+        elif sentiment == 1:
+            response = f"Great, you liked {self.current_title}."
+        
+        self.user_ratings[movie_index] = sentiment
+        self.input_count += 1
+        return (1, response)
+
     ############################################################################
     # 2. Modules 2 and 3: extraction and transformation                        #
     ############################################################################
@@ -127,31 +148,118 @@ class Chatbot:
         # directly based on how modular it is, we highly recommended writing   #
         # code in a modular fashion to make it easier to improve and debug.    #
         ########################################################################
-        preprocessed_line = self.preprocess(line)
-        if self.creative:
-            response = "I processed {} in creative mode!!".format(line)
-        else:
-            def recommend_movie():
-                recommendation = f'"{self.titles[self.recommendations[self.current_recommendation]][0]}"'
+        def recommend_movie():
+            recommendation = f'"{self.titles[self.recommendations[self.current_recommendation]][0]}"'
 
-                RECOMMENDATIONS = [
-    f"Thats enough for me to make a recommendation. Based on your interests, I believe you will enjoy {recommendation}. Do you want to hear additional suggestions?",
-    f"I have a feeling that {recommendation} will pique your interest. Shall I offer you some more recommendations?",
-    f"I am confident that you will find {recommendation} appealing. Would you like me to provide you with more options?",
-    f"My intuition tells me that {recommendation} will catch your attention. Do you want me to give you further recommendations?",
-    f"Judging from your preferences, I think {recommendation} would suit your taste. Can I suggest more options for you?",
-    f"I think {recommendation} would be right up your alley. If you're interested, I can suggest some similar options as well.",
-    f"Based on what I know about your tastes, I'm pretty sure you'll love {recommendation}. Want me to offer some additional suggestions?",
-    f"If you're looking for something new and exciting, I highly recommend {recommendation}. And if you're open to it, I can suggest some related ideas too.",
-    f"In my opinion, {recommendation} is a standout choice. But if you'd like to explore some other options, just let me know.",
-    f"From my analysis of your interests, I believe {recommendation} would be an excellent choice. But if you'd like some more ideas, I'd be happy to provide them."
+            RECOMMENDATIONS = [
+f"Thats enough for me to make a recommendation. Based on your interests, I believe you will enjoy {recommendation}. Do you want to hear additional suggestions?",
+f"I have a feeling that {recommendation} will pique your interest. Shall I offer you some more recommendations?",
+f"I am confident that you will find {recommendation} appealing. Would you like me to provide you with more options?",
+f"My intuition tells me that {recommendation} will catch your attention. Do you want me to give you further recommendations?",
+f"Judging from your preferences, I think {recommendation} would suit your taste. Can I suggest more options for you?",
+f"I think {recommendation} would be right up your alley. If you're interested, I can suggest some similar options as well.",
+f"Based on what I know about your tastes, I'm pretty sure you'll love {recommendation}. Want me to offer some additional suggestions?",
+f"If you're looking for something new and exciting, I highly recommend {recommendation}. And if you're open to it, I can suggest some related ideas too.",
+f"In my opinion, {recommendation} is a standout choice. But if you'd like to explore some other options, just let me know.",
+f"From my analysis of your interests, I believe {recommendation} would be an excellent choice. But if you'd like some more ideas, I'd be happy to provide them."
 ]
-                self.waiting_on_response = True
-                response = RECOMMENDATIONS[self.current_recommendation % len(RECOMMENDATIONS)]
-                self.current_recommendation += 1 # TODO: get more recommendations if needed
-                return response
+            self.waiting_on_response = True
+            response = RECOMMENDATIONS[self.current_recommendation % len(RECOMMENDATIONS)]
+            self.current_recommendation += 1 # TODO: get more recommendations if needed
+            return response
+        
+        preprocessed_line = self.preprocess(line)
 
+        if self.creative:
+            def process_sentiment(index):
+                    sentiment = self.extract_sentiment(preprocessed_line)
+                    response = ""
+                    if sentiment == 0:
+                        return f"I'm not sure if you liked {title}, can you tell me more about it?"
+                    elif sentiment == -1:
+                        response = f"I'm sorry to hear you didn't like {title}."
+                    elif sentiment == 1:
+                        response = f"Great, you liked {title}."
+                    
+                    self.user_ratings[index] = sentiment
+                    self.input_count += 1
 
+                    if self.input_count < 5:
+                        return f"{response} Tell me about other movies that you've seen."
+                    
+                    self.recommendations = self.recommend(self.user_ratings, self.ratings)
+                    return f"{response} \n {recommend_movie()}"
+            
+            if not self.waiting_on_response and not self.waiting_on_typo and not self.waiting_on_disambiguate:
+                titles = self.extract_titles(preprocessed_line)
+                if len(titles) == 0:
+                    return "Sorry, I couldn't identify a movie in your response. Make sure the movie title is surrounded by quotation marks."
+                elif len(titles) > 1:
+                    return  "Sorry, please tell me about one movie at a time."
+                
+                title = f'"{titles[0]}"'
+                movie_indexes = self.find_movies_by_title(title.replace('"', ''))
+
+                if len(movie_indexes) == 0:
+                    similar_movies = self.get_names_from_index(self.find_movies_closest_to_title(title.replace('"', '')))
+                    if len(similar_movies) == 0:
+                        return f"Sorry, I couldn't find {title}. Please tell me about another movie that you liked"
+                    self.waiting_on_typo = True
+                    self.last_preprocessed_line = preprocessed_line
+                    print(similar_movies)
+                    return f'Sorry, I couldn\'t find {title}. Did you mean "{similar_movies}?"'
+                
+                if len(movie_indexes) > 1:
+                    self.waiting_on_disambiguate = True
+                    self.last_preprocessed_line = preprocessed_line
+                    return f"Which one of these did you mean? \n {self.get_names_from_index(movie_indexes)}"
+ 
+                # Get sentiment
+                
+                
+                return process_sentiment(movie_indexes[0])
+
+            else: 
+                if self.waiting_on_typo:
+                    if preprocessed_line in NO_INPUTS:
+                        self.waiting_on_typo = False
+                        return "Ok, try entering the movie again or tell me about anothere movie."
+                    titles = self.extract_titles(self.last_preprocessed_line)
+                    title = f'"{titles[0]}"'
+                    correct_movie_index = self.find_movies_closest_to_title(title.replace('"', ''))[0]
+                    title = f'"{self.get_names_from_index([correct_movie_index])[0]}"'
+
+                    if preprocessed_line not in YES_INPUTS:
+                        return f"Sorry, I didn't understand that. Is {title} the movie you were thinking about? [yes/no]"
+                    # else yes
+                    preprocessed_line = self.last_preprocessed_line
+                    self.waiting_on_typo = False
+                    return process_sentiment(correct_movie_index)
+
+                if self.waiting_on_disambiguate:
+                    self.waiting_on_disambiguate = False
+                    titles = self.extract_titles(self.last_preprocessed_line)
+                    title = f'"{titles[0]}"'
+                    movie_indexes = self.find_movies_by_title(title.replace('"', ''))
+                    disambiguated_indexes = self.disambiguate(preprocessed_line, movie_indexes)
+                    if len(disambiguated_indexes) != 1:
+                        return f"Sorry, please try telling me about another movie."
+                    correct_movie_index = disambiguated_indexes[0]
+                    title = f'"{self.get_names_from_index([correct_movie_index])[0]}"'
+                    preprocessed_line = self.last_preprocessed_line
+                    return process_sentiment(correct_movie_index)
+                
+                # asked if they wanted more recommendations
+                if preprocessed_line in NO_INPUTS:
+                    self.waiting_on_response = False                    
+                    return "Ok, enter :quit to quit or tell me about another movie that you've seen."
+                elif preprocessed_line in YES_INPUTS:
+                    return recommend_movie()
+                else:
+                    return "Sorry, I didn't understand that. Would you like more recommendations? [yes/no]"
+
+                
+        else:
             if not self.waiting_on_response:
                 # Get movie titles from input
                 titles = self.extract_titles(preprocessed_line)
@@ -188,13 +296,7 @@ class Chatbot:
                 return f"{response} \n {recommend_movie()}"
             else:
                 print(f"pre_process: {preprocessed_line}")
-                if preprocessed_line in NO_INPUTS:
-                    self.waiting_on_response = False                    
-                    return "Ok, enter :quit to quit or tell me about another movie that you've seen."
-                elif preprocessed_line in YES_INPUTS:
-                    return recommend_movie()
-                else:
-                    return "Sorry, I didn't understand that. Would you like more recommendations? [yes/no]"
+                
 
         ########################################################################
         #                          END OF YOUR CODE                            #
@@ -297,32 +399,60 @@ class Chatbot:
         :param title: a string containing a movie title
         :returns: a list of indices of matching movies
         """
-        title = title.lower()
-        years = re.findall(r'\([0-9]{4}\)', title)
-        year_braced = None if len(years) == 0 else years[-1]
-        year = year_braced.replace("(", "").replace(")", "") if year_braced else None
+        if self.creative:
+            title = title.lower()
+            years = re.findall(r'\([0-9]{4}\)', title)
+            year_braced = None if len(years) == 0 else years[-1]
+            year = year_braced.replace("(", "").replace(")", "") if year_braced else None
 
-        title_to_find = title
-        if year_braced:
-            title_to_find = title.replace(year_braced, "").strip()
-        
-        indexes = []
-        def get_indexes(): 
-            for i, movie in enumerate(self.titles):
-                curr_movie = movie[0].lower()
-                if curr_movie.startswith(f"{title_to_find} (") or curr_movie == title_to_find:
-                    if year and year in movie[0] or not year:
-                        indexes.append(i)
-        get_indexes()
+            title_to_find = title
+            if year_braced:
+                title_to_find = title.replace(year_braced, "").strip()
+            
+            indexes = []
+            def get_indexes(): 
+                for i, movie in enumerate(self.titles):
+                    curr_movie = movie[0].lower()
+                    if curr_movie.startswith(f"{title_to_find}") or curr_movie == title_to_find:
+                        if year and year in movie[0] or not year:
+                            indexes.append(i)
+            get_indexes()
 
-        if len(indexes) == 0: 
-            start = re.findall(r'^(the |an |a )', title)
-            if len(start):
-                title_to_find = f"{title_to_find.replace(start[0], '', 1)}, {start[0].strip()}"
-                get_indexes()
+            if len(indexes) == 0: 
+                start = re.findall(r'^(the |an |a )', title)
+                if len(start):
+                    title_to_find = f"{title_to_find.replace(start[0], '', 1)}, {start[0].strip()}"
+                    get_indexes()
 
 
-        return indexes
+            return indexes
+        else:
+            title = title.lower()
+            years = re.findall(r'\([0-9]{4}\)', title)
+            year_braced = None if len(years) == 0 else years[-1]
+            year = year_braced.replace("(", "").replace(")", "") if year_braced else None
+
+            title_to_find = title
+            if year_braced:
+                title_to_find = title.replace(year_braced, "").strip()
+            
+            indexes = []
+            def get_indexes(): 
+                for i, movie in enumerate(self.titles):
+                    curr_movie = movie[0].lower()
+                    if curr_movie.startswith(f"{title_to_find} (") or curr_movie == title_to_find:
+                        if year and year in movie[0] or not year:
+                            indexes.append(i)
+            get_indexes()
+
+            if len(indexes) == 0: 
+                start = re.findall(r'^(the |an |a )', title)
+                if len(start):
+                    title_to_find = f"{title_to_find.replace(start[0], '', 1)}, {start[0].strip()}"
+                    get_indexes()
+
+
+            return indexes
 
     def extract_sentiment(self, preprocessed_input):
         """Extract a sentiment rating from a line of pre-processed text.
@@ -431,7 +561,7 @@ class Chatbot:
         """Creative Feature: Given a potentially misspelled movie title,
         return a list of the movies in the dataset whose titles have the least
         edit distance from the provided title, and with edit distance at most
-        max_distance.
+        max_distance. 
 
         - If no movies have titles within max_distance of the provided title,
         return an empty list.
