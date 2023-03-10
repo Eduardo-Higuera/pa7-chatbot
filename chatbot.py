@@ -163,6 +163,28 @@ f"If you're looking for something new and exciting, I highly recommend {recommen
 f"In my opinion, {recommendation} is a standout choice. But if you'd like to explore some other options, just let me know.",
 f"From my analysis of your interests, I believe {recommendation} would be an excellent choice. But if you'd like some more ideas, I'd be happy to provide them."
 ]
+
+            RECOMMENDATIONS_SNOOP_DOGG = [
+                f"Fo' shizzle, my dizzle, check it! I'm feelin' good about this recommendation, my homie. Based on what you've been tellin' me, \
+                    I think you gonna straight-up love {recommendation}. You want me to drop some more ideas your way, or you good with that one?",
+                f"Aight, listen up! I got a vibe that {recommendation} is gonna be your jam, my dude. But if you're lookin' for more, I can keep \
+                    the suggestions comin'. What you thinkin', my homie?",
+                f"Yo, yo, yo! I'm gettin' some major positive energy from this recommendation, my man. I think {recommendation} \
+                    is gonna be just what you're lookin' for. But if you're open to more ideas, I can definitely hook you up!",
+                f"A'ight, a'ight, I see you, my dude! From what you've been sayin', I think {recommendation} is gonna be your ticket to ride. \
+                    But if you want me to drop some more knowledge, just say the word!",
+                f"Yo, yo, yo, check it! I'm gettin' some major good vibes from this recommendation, my homie. I think {recommendation} \
+                    is the way to go. But if you want me to keep the party goin' with more ideas, I got you covered!",
+                f"Listen up, my dude! From what you've been tellin' me, I'm pretty sure {recommendation} is the one for you. But if you're lookin' \
+                    for some more flicks to check out, I got plenty of options up my sleeve!",
+                f"Aight, aight, my bad, my bad! I must've misunderstood you, my homie. But check it out, I got a feeling that {recommendation} \
+                    is gonna be your jam. Want me to keep the suggestions comin' or you good with that one?",
+                f"Yo, yo, yo! I'm feelin' some major positive energy from this recommendation, my man. I think {recommendation} \
+                    is gonna be straight fire. But if you're lookin' for more dope flicks to check out, just let me know!",
+                f"Ay, fo shizzle! That's enough for me to drop a recommendation on ya. Based on your interests, I'm feelin' like {recommendation} \
+                    is gonna be right up your alley. You want some more options to choose from? I gotchu covered, my homie."
+            ]
+
             self.waiting_on_response = True
             response = RECOMMENDATIONS[self.current_recommendation % len(RECOMMENDATIONS)]
             self.current_recommendation += 1 # TODO: get more recommendations if needed
@@ -175,17 +197,17 @@ f"From my analysis of your interests, I believe {recommendation} would be an exc
                     sentiment = self.extract_sentiment(preprocessed_line)
                     response = ""
                     if sentiment == 0:
-                        return f"I'm not sure if you liked {title}, can you tell me more about it?"
+                        return f"I ain't quite sure if you feelin' {title} or not, so why don't you let me in on the scoop?"
                     elif sentiment == -1:
-                        response = f"I'm sorry to hear you didn't like {title}."
+                        response = f"Aw, snap, that's a bummer to hear you didn't vibe with {title}, my dude."
                     elif sentiment == 1:
-                        response = f"Great, you liked {title}."
+                        response = f"Ayyye, that's what's up, my homie! I'm stoked to hear that you're feelin' {title}!"
                     
                     self.user_ratings[index] = sentiment
                     self.input_count += 1
 
                     if self.input_count < 5:
-                        return f"{response} Tell me about other movies that you've seen."
+                        return f"{response} What other flicks you into?"
                     
                     self.recommendations = self.recommend(self.user_ratings, self.ratings)
                     return f"{response} \n {recommend_movie()}"
@@ -193,9 +215,9 @@ f"From my analysis of your interests, I believe {recommendation} would be an exc
             if not self.waiting_on_response and not self.waiting_on_typo and not self.waiting_on_disambiguate:
                 titles = self.extract_titles(preprocessed_line)
                 if len(titles) == 0:
-                    return "Sorry, I couldn't identify a movie in your response. Make sure the movie title is surrounded by quotation marks."
+                    return "My bad, my bad, I must have misunderstood you, my homie. You gotta put the movie title in quotes, so I can recognize it right."
                 elif len(titles) > 1:
-                    return  "Sorry, please tell me about one movie at a time."
+                    return  "Yo, slow down for a minute, my homie! Let's take it one flick at a time, so we can make sure we're on the same page."
                 
                 title = f'"{titles[0]}"'
                 movie_indexes = self.find_movies_by_title(title.replace('"', ''))
@@ -203,22 +225,24 @@ f"From my analysis of your interests, I believe {recommendation} would be an exc
                 if len(movie_indexes) == 0:
                     similar_movies = self.get_names_from_index(self.find_movies_closest_to_title(title.replace('"', '')))
                     if len(similar_movies) == 0:
-                        return f"Sorry, I couldn't find {title}. Please tell me about another movie that you liked"
+                        return f"My apologies, my dude. I couldn't find nothin' on {title}. Can you put me on to another flick that you're into?"
                     self.waiting_on_typo = True
                     self.last_preprocessed_line = preprocessed_line
                     print(similar_movies)
-                    return f'Sorry, I couldn\'t find {title}. Did you mean "{similar_movies}?"'
+                    return f'Aw yeah, my bad, my bad, my homie! It looks like I couldn\'t find what you were lookin\' for with {title}.\
+                         But don\'t trip, I got your back! Check it, I\'m thinkin\' you might have meant "{similar_movies}", am I right?'
                 
                 if len(movie_indexes) > 1:
                     self.waiting_on_disambiguate = True
                     self.last_preprocessed_line = preprocessed_line
-                    return f"Which one of these did you mean? \n {self.get_names_from_index(movie_indexes)}"
+                    return f"Which one of these joints did you mean? \n {self.get_names_from_index(movie_indexes)}"
  
                 # Get sentiment
                 
                 
                 return process_sentiment(movie_indexes[0])
 
+            # Starter
             else: 
                 if self.waiting_on_typo:
                     if preprocessed_line in NO_INPUTS:
